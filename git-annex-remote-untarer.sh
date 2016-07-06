@@ -19,6 +19,7 @@
 # directories are created in a specified folder in the remote.
 # TODO: explanation about the symlinks
 # TODO: explanation how to create the original tar files
+# TODO: use traps?
 #
 # Install in PATH as git-annex-remote-untarer
 #
@@ -50,8 +51,8 @@ setconfig () {
 
 # Sets LOC to the location to use to store a key.
 calclocation () {
-	ask DIRHASH "$1"
-	LOC="$mydirectory/$RET/$1"
+	ask DIRHASH-LOWER "$1"
+	LOC="$mydirectory/objects/$RET/$1"
 }
 
 # Asks for some value, and stores it in RET
@@ -70,32 +71,6 @@ ask () {
 	esac
 }
 
-# This remote doesn't need credentials to access it,
-# but many of them will. Here's how to handle requiring the user
-# set MYPASSWORD and MYLOGIN when running initremote. The creds
-# will be stored securely for later use, so the user only needs
-# to provide them once.
-setupcreds () {
-	if [ -z "$MYPASSWORD" ] || [ -z "$MYLOGIN" ]; then
-		echo INITREMOTE-FAILURE "You need to set MYPASSWORD and MYLOGIN environment variables when running initremote."
-	else
-		echo SETCREDS mycreds "$MYLOGIN" "$MYPASSWORD"
-		echo INITREMOTE-SUCCESS
-	fi
-}
-
-getcreds () {
-	echo GETCREDS mycreds
-	read -r resp
-	case "${resp%% *}" in
-		CREDS)
-			MYLOGIN="$(echo "$resp" | sed 's/^CREDS \([^ ]*\) .*/\1/')"
-			MYPASSWORD="$(echo "$resp" | sed 's/^CREDS [^ ]* //')"
-		;;
-	esac
-
-}
-
 # This has to come first, to get the protocol started.
 echo VERSION 1
 
@@ -104,44 +79,35 @@ while read -r line; do
 	set -- $line
 	case "$1" in
 		INITREMOTE)
-			# Do anything necessary to create resources
-			# used by the remote. Try to be idempotent.
-			#
-			# Use GETCONFIG to get any needed configuration
-			# settings, and SETCONFIG to set any persistent
-			# configuration settings.
-			#
-			# (Note that this is not run every time, only when
-			# git annex initremote or git annex enableremote is
-			# run.)
+			# Idempotently try to create the folder hierarchy for the remote.
 
-			# The directory provided by the user
-			# could be relative; make it absolute,
-			# and store that.
+			# The directory provided by the user could be relative; we make it
+			# absolute and store that.
 			getconfig directory
 			mydirectory="$(readlink -f "$RET")" || true
 			setconfig directory "$mydirectory"
+
+			#TODO: make automatic creation of symlinks optional
+			#TODO: make "objects" and "links" configurable
+
 			if [ -z "$mydirectory" ]; then
 				echo INITREMOTE-FAILURE "You need to set directory="
+			elif ! mkdir -p "$mydirectory/objects"; then
+				echo INITREMOTE-FAILURE "Failed to create to $mydirectory/objects"
+			elif ! mkdir -p "$mydirectory/links"; then
+				echo INITREMOTE-FAILURE "Failed to create to $mydirectory/links"
 			else
-				if mkdir -p "$mydirectory"; then
-					setupcreds
-				else
-					echo INITREMOTE-FAILURE "Failed to write to $mydirectory"
-				fi
+				echo INITREMOTE-SUCCESS
 			fi
 		;;
 		PREPARE)
-			# Use GETCONFIG to get configuration settings,
-			# and do anything needed to get ready for using the
-			# special remote here.
-			getcreds
+			# Check whether the required folders are present
 			getconfig directory
 			mydirectory="$RET"
-			if [ -d "$mydirectory" ]; then
+			if [ -d "$mydirectory/objects" ] && [ -d "$mydirectory/links" ]; then
 				echo PREPARE-SUCCESS
 			else
-				echo PREPARE-FAILURE "$mydirectory not found"
+				echo PREPARE-FAILURE "Folders objects and links not found in $mydirectory/"
 			fi
 		;;
 		TRANSFER)
@@ -217,6 +183,7 @@ while read -r line; do
 				echo REMOVE-SUCCESS "$key"
 			fi
 		;;
+		#TODO: handle errors from git-annex?
 		*)
 			# The requests listed above are all the ones
 			# that are required to be supported, so it's fine
