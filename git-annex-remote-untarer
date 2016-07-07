@@ -52,7 +52,7 @@ setconfig () {
 # Sets LOC to the location to use to store a key.
 calclocation () {
 	ask DIRHASH-LOWER "$1"
-	LOC="$mydirectory/objects/$RET/$1"
+	LOC="$mydirectory/objects/$RET"
 }
 
 # Asks for some value, and stores it in RET
@@ -114,46 +114,56 @@ while read -r line; do
 			key="$3"
 			file="$4"
 			case "$2" in
+				# Extract the file to a location based on the key.
 				STORE)
-					# Store the file to a location
-					# based on the key.
-					# XXX when at all possible, send PROGRESS
 					calclocation "$key"
-					mkdir -p "$(dirname "$LOC")"
-					# Store in temp file first, so that
-					# CHECKPRESENT does not see it
-					# until it is all stored.
-					mkdir -p "$mydirectory/tmp"
-					tmp="$mydirectory/tmp/$key"
-					if runcmd cp "$file" "$tmp" \
-					   && runcmd mv -f "$tmp" "$LOC"; then
+
+					#TODO: check if file is a tar archive
+
+					# Create the folder based on the key
+					if ! mkdir -p "$LOC"; then
+						echo ERROR Could not create folder for "$LOC/$key"
+						exit 1
+					fi
+
+					# Extract the file in a temporary folder so CHECKPRESENT
+					# does not see it until it is all stored
+					tmp="$mydirectory/tmp/$key/"
+					mkdir -p "$tmp"
+					#TODO: send PROGRESS
+					#TODO: generate a file listing
+					if tar --directory="$tmp" -xf "$file" && runcmd mv -f "$tmp" "$LOC"; then
+						#TODO: create symlinks
 						echo TRANSFER-SUCCESS STORE "$key"
 					else
 						echo TRANSFER-FAILURE STORE "$key"
 					fi
-
-					mkdir -p "$(dirname "$LOC")"
-					# The file may already exist, so
-					# make sure we can overwrite it.
-					chmod 644 "$LOC" 2>/dev/null || true
 				;;
+
+				# Repack the tar archive again to the specified location
 				RETRIEVE)
-					# Retrieve from a location based on
-					# the key, outputting to the file.
-					# XXX when easy to do, send PROGRESS
 					calclocation "$key"
-					if runcmd cp "$LOC" "$file"; then
+
+					#TODO: send PROGRESS
+
+					#TODO: add support for dotfiles
+					# shellcheck disable=SC2046
+					if (cd "$LOC/$key/" && tar --sort=name --owner=root --group=root --numeric-owner -cf "$file" ./* ); then
 						echo TRANSFER-SUCCESS RETRIEVE "$key"
 					else
 						echo TRANSFER-FAILURE RETRIEVE "$key"
 					fi
+				;;
+				*)
+					echo UNSUPPORTED-REQUEST
 				;;
 			esac
 		;;
 		CHECKPRESENT)
 			key="$2"
 			calclocation "$key"
-			if [ -e "$LOC" ]; then
+			if [ -d "$LOC/$key/" ]; then
+				#TODO: maybe check all files from the file listing?
 				echo CHECKPRESENT-SUCCESS "$key"
 			else
 				if [ -d "$mydirectory" ]; then
@@ -173,8 +183,8 @@ while read -r line; do
 			calclocation "$key"
 			# Note that it's not a failure to remove a
 			# key that is not present.
-			if [ -e "$LOC" ]; then
-				if runcmd rm -f "$LOC"; then
+			if [ -e "$LOC/$key/" ]; then
+				if runcmd rm -f "$LOC/$key/"; then
 					echo REMOVE-SUCCESS "$key"
 				else
 					echo REMOVE-FAILURE "$key"
