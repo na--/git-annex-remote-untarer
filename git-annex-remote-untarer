@@ -151,7 +151,7 @@ while read -r line; do
 					# shellcheck disable=SC2016
 					# Outputs the current tar progress (assumes blocks of 512 bytes)
 					if (
-						tar --checkpoint=1 \
+						tar --checkpoint=500 \
 							--checkpoint-action=exec='echo PROGRESS "$((512*TAR_BLOCKING_FACTOR*TAR_CHECKPOINT))"' \
 							--directory="$tmp" --extract --file "$file" \
 						&& runcmd mv -f "$tmp" "$LOC" \
@@ -176,7 +176,7 @@ while read -r line; do
 						tar --sort=name --owner=root --group=root \
 							--numeric-owner --verbatim-files-from \
 							--no-wildcards --no-recursion \
-							--checkpoint=1 --files-from "$LOC/$key.filelist" \
+							--checkpoint=500 --files-from "$LOC/$key.filelist" \
 							--checkpoint-action=exec='echo PROGRESS "$((512*TAR_BLOCKING_FACTOR*TAR_CHECKPOINT))"' \
 							--create --file "$full_file_path"
 					); then
