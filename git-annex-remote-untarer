@@ -20,6 +20,7 @@
 # TODO: explanation about the symlinks
 # TODO: explanation how to create the original tar files
 # TODO: use traps?
+# TODO: add external remote and license files
 #
 # Install in PATH as git-annex-remote-untarer
 #
@@ -156,6 +157,7 @@ while read -r line; do
 						&& runcmd mv -f "$tmp" "$LOC" \
 						&& ln -s "$LOC/$key/"* "$mydirectory/links/"
 					) then
+						#TODO: protect files agains accidental change like git-annex does?
 						echo TRANSFER-SUCCESS STORE "$key"
 					else
 						echo TRANSFER-FAILURE STORE "$key" "Could not untar the supplied file $key ($file)"
@@ -165,6 +167,7 @@ while read -r line; do
 				# Repack the tar archive again to the specified location
 				RETRIEVE)
 					calclocation "$key"
+					full_file_path="$(readlink -f "$file")"
 
 					# shellcheck disable=SC2016
 					# Outputs the current tar progress (assumes blocks of 512 bytes)
@@ -175,7 +178,7 @@ while read -r line; do
 							--no-wildcards --no-recursion \
 							--checkpoint=1 --files-from "$LOC/$key.filelist" \
 							--checkpoint-action=exec='echo PROGRESS "$((512*TAR_BLOCKING_FACTOR*TAR_CHECKPOINT))"' \
-							--create --file "$file"
+							--create --file "$full_file_path"
 					); then
 						echo TRANSFER-SUCCESS RETRIEVE "$key"
 					else
@@ -191,7 +194,6 @@ while read -r line; do
 			key="$2"
 			calclocation "$key"
 			if [ -d "$LOC/$key/" ]; then
-				#TODO: maybe check all files from the file listing?
 				echo CHECKPRESENT-SUCCESS "$key"
 			else
 				if [ -d "$mydirectory" ]; then
