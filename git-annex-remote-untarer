@@ -118,25 +118,46 @@ while read -r line; do
 				STORE)
 					calclocation "$key"
 
-					#TODO: check if file is a tar archive
+					# Check whether the supplied file is a tar
+					if [ "$(file --brief --mime-type "$file")" != "application/x-tar" ]; then
+						echo TRANSFER-FAILURE STORE "$key" "The file $key ($file) is not a tar file"
+						continue
+					fi
 
 					# Create the folder based on the key
 					if ! mkdir -p "$LOC"; then
-						echo ERROR Could not create folder for "$LOC/$key"
-						exit 1
+						echo TRANSFER-FAILURE STORE "$key" "Could not create folder for $LOC/$key"
+						continue
 					fi
+
+					# Generate a file listing
+					if ! tar --list --file "$file" > "$LOC/$key.filelist"; then
+						echo TRANSFER-FAILURE STORE "$key" "Could not generate a filelist for $LOC/$key"
+						runcmd rm "$LOC/$key.filelist"
+						continue
+					fi
+
+					#TODO: remove
+					runcmd cat "$LOC/$key.filelist"
 
 					# Extract the file in a temporary folder so CHECKPRESENT
 					# does not see it until it is all stored
 					tmp="$mydirectory/tmp/$key/"
 					mkdir -p "$tmp"
-					#TODO: send PROGRESS
-					#TODO: generate a file listing
-					if tar --directory="$tmp" -xf "$file" && runcmd mv -f "$tmp" "$LOC"; then
+
+
+					# shellcheck disable=SC2016
+					# Outputs the current tar progress (assumes blocks of 512 bytes)
+					if
+						tar --checkpoint=1 \
+							--checkpoint-action=exec='echo PROGRESS "$((512*TAR_BLOCKING_FACTOR*TAR_CHECKPOINT))"' \
+							--directory="$tmp" --extract --file "$file" \
+						&& runcmd mv -f "$tmp" "$LOC"
+					then
 						#TODO: create symlinks
 						echo TRANSFER-SUCCESS STORE "$key"
 					else
-						echo TRANSFER-FAILURE STORE "$key"
+						echo TRANSFER-FAILURE STORE "$key" "Could not untar the supplied file $key ($file)"
 					fi
 				;;
 
@@ -144,11 +165,17 @@ while read -r line; do
 				RETRIEVE)
 					calclocation "$key"
 
-					#TODO: send PROGRESS
-
-					#TODO: add support for dotfiles
-					# shellcheck disable=SC2046
-					if (cd "$LOC/$key/" && tar --sort=name --owner=root --group=root --numeric-owner -cf "$file" ./* ); then
+					# shellcheck disable=SC2016
+					# Outputs the current tar progress (assumes blocks of 512 bytes)
+					if (
+						cd "$LOC/$key/" && \
+						tar --sort=name --owner=root --group=root \
+							--numeric-owner --verbatim-files-from \
+							--no-wildcards --no-recursion \
+							--checkpoint=1 --files-from "$LOC/$key.filelist" \
+							--checkpoint-action=exec='echo PROGRESS "$((512*TAR_BLOCKING_FACTOR*TAR_CHECKPOINT))"' \
+							--create --file "$file"
+					); then
 						echo TRANSFER-SUCCESS RETRIEVE "$key"
 					else
 						echo TRANSFER-FAILURE RETRIEVE "$key"
@@ -181,10 +208,9 @@ while read -r line; do
 		REMOVE)
 			key="$2"
 			calclocation "$key"
-			# Note that it's not a failure to remove a
-			# key that is not present.
+			# Note that it's not a failure to remove a key that is not present.
 			if [ -e "$LOC/$key/" ]; then
-				if runcmd rm -f "$LOC/$key/"; then
+				if runcmd rm -rf "$LOC/$key/" && runcmd rm "$LOC/$key.filelist"; then
 					echo REMOVE-SUCCESS "$key"
 				else
 					echo REMOVE-FAILURE "$key"
