@@ -53,7 +53,7 @@ setconfig () {
 # Sets LOC to the location to use to store a key.
 calclocation () {
 	ask DIRHASH-LOWER "$1"
-	LOC="$mydirectory/objects/$RET"
+	LOC="$mydirectory/objects/${RET%/}"
 }
 
 # Asks for some value, and stores it in RET
